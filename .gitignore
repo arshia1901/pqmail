@@ -1,0 +1,40 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables / secrets
+.env
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Generated reports
+*.html
+
+# Test/cache files
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Private key material
+pqmail/keys/store/**/*.sk.bin
+pqmail/keys/store/**/*.private
+pqmail/keys/store/**/*.pem
+pqmail/keys/store/**/*.key
+
+# Optional model artifacts if regenerated
+*.joblib
