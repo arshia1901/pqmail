@@ -1,0 +1,5 @@
+[upstream]
+host = "smtp.gmail.com"
+port = 587
+user = "angeleo.angelei@gmail.com"
+password = "bssxwcfbvbxommjes" 

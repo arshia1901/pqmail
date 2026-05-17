@@ -1,4 +1,13 @@
+from pathlib import Path
+import sys
+
 import pytest
+
+ROOT = Path(__file__).resolve().parents[1]
+ROOT_STR = str(ROOT)
+
+if ROOT_STR not in sys.path:
+    sys.path.insert(0, ROOT_STR)
 
 from pqmail.parser.mime_parser import (
     extract_addresses,
@@ -80,3 +89,41 @@ def test_extract_addresses_empty_header():
     message = parse_raw_email(SIMPLE_EMAIL)
 
     assert extract_addresses(message, "Bcc") == []
+
+
+@pytest.mark.asyncio
+async def test_parse_simple_email_async():
+    """Test the new async parse() function with ParsedEmail output."""
+    from pqmail.parser.mime_parser import parse
+
+    result = await parse(SIMPLE_EMAIL)
+
+    assert isinstance(result.raw_bytes, bytes)
+    assert result.headers["from"] == "alice@example.com"
+    assert result.algorithm == "UNENCRYPTED"
+    assert result.is_encrypted is False
+    assert result.parse_error is None
+
+
+@pytest.mark.asyncio
+async def test_parse_multipart_email_async():
+    """Test async parse with multipart email."""
+    from pqmail.parser.mime_parser import parse
+
+    result = await parse(MULTIPART_EMAIL)
+
+    assert result.algorithm == "UNENCRYPTED"
+    assert "Plain text version" in result.body_text
+    assert result.is_encrypted is False
+
+
+@pytest.mark.asyncio
+async def test_parse_invalid_bytes():
+    """Test parse with non-bytes input."""
+    from pqmail.parser.mime_parser import parse
+
+    # Should not raise, returns ParsedEmail with error
+    result = await parse("not bytes")
+
+    assert result.parse_error is not None
+    assert "must be bytes" in result.parse_error

@@ -2,6 +2,7 @@
 MIME Parser for PQMail.
 
 This module parses raw email messages and extracts safe metadata and body parts.
+Integrates with pgp_classifier to detect encryption algorithm.
 
 Security rule:
 - Do not write plaintext email content to disk or logs.
@@ -11,7 +12,30 @@ Security rule:
 from email import policy
 from email.parser import BytesParser
 from email.message import EmailMessage
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+from dataclasses import dataclass
+from pqmail.parser.pgp_classifier import classify_algorithm_from_mime
+
+
+@dataclass
+class ParsedEmail:
+    """
+    Structured representation of a parsed email.
+
+    Attributes:
+        raw_bytes: Original message bytes (untouched, never logged)
+        headers: Safe metadata (From, To, Message-ID only — no body/subject)
+        body_text: Plaintext body (in memory only)
+        algorithm: Detected encryption algorithm (RSA|ECDH|HYBRID|UNENCRYPTED|SIGNED_ONLY|UNKNOWN)
+        is_encrypted: Boolean flag whether encryption was detected
+        parse_error: Error message if parsing failed, else None
+    """
+    raw_bytes: bytes
+    headers: Dict[str, Any]
+    body_text: str
+    algorithm: str
+    is_encrypted: bool
+    parse_error: Optional[str] = None
 
 
 def parse_raw_email(raw_data: bytes) -> EmailMessage:
@@ -129,3 +153,72 @@ def parse_email_metadata(raw_data: bytes) -> Dict[str, Any]:
         "attachments": attachments,
         "is_multipart": message.is_multipart(),
     }
+
+
+async def parse(raw_data: bytes) -> ParsedEmail:
+    """
+    Parse raw email bytes into structured ParsedEmail with algorithm detection.
+
+    Steps:
+        1. Parse MIME structure
+        2. Extract headers and body
+        3. Detect PGP blocks and classify algorithm
+        4. Return ParsedEmail dataclass
+
+    Never writes content to disk or logs plaintext.
+
+    Args:
+        raw_data: Raw email bytes
+
+    Returns:
+        ParsedEmail: Structured representation with algorithm field
+    """
+    if not isinstance(raw_data, bytes):
+        return ParsedEmail(
+            raw_bytes=b"",
+            headers={},
+            body_text="",
+            algorithm="UNKNOWN",
+            is_encrypted=False,
+            parse_error="Input must be bytes",
+        )
+
+    try:
+        message = parse_raw_email(raw_data)
+
+        # Extract safe headers (no subject to avoid content leakage)
+        headers = {
+            "message_id": get_header(message, "Message-ID"),
+            "from": get_header(message, "From"),
+            "to": extract_addresses(message, "To"),
+            "cc": extract_addresses(message, "Cc"),
+            "bcc": extract_addresses(message, "Bcc"),
+            "date": get_header(message, "Date"),
+        }
+
+        # Extract body (in memory only)
+        body_parts = extract_body_parts(message)
+        body_text = body_parts.get("plain_text", "")
+
+        # Detect algorithm
+        algorithm = classify_algorithm_from_mime(message)
+        is_encrypted = algorithm != "UNENCRYPTED" and algorithm != "UNKNOWN"
+
+        return ParsedEmail(
+            raw_bytes=raw_data,
+            headers=headers,
+            body_text=body_text,
+            algorithm=algorithm,
+            is_encrypted=is_encrypted,
+            parse_error=None,
+        )
+
+    except Exception as e:
+        return ParsedEmail(
+            raw_bytes=raw_data,
+            headers={},
+            body_text="",
+            algorithm="PARSE_ERROR",
+            is_encrypted=False,
+            parse_error=str(e),
+        )
