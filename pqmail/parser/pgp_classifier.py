@@ -33,6 +33,35 @@ def extract_pgp_block(mime_payload: str) -> Optional[str]:
     return None
 
 
+def guess_algorithm_from_pgp_headers(pgp_armored_text: str) -> Optional[str]:
+    """
+    Attempt to guess encryption algorithm from PGP armor headers.
+    
+    PGP messages sometimes include headers that hint at the algorithm.
+    This is a heuristic approach for MVPs without the private key.
+    
+    Returns: "RSA" | "ECDH" | "HYBRID" | None (if no hint found)
+    """
+    if not pgp_armored_text:
+        return None
+    
+    # Look for armor headers that might indicate algorithm
+    text_upper = pgp_armored_text.upper()
+    
+    if "ALGORITHM:" in text_upper:
+        if "RSA" in text_upper:
+            return "RSA"
+        elif "ECDH" in text_upper or "ECDSA" in text_upper:
+            return "ECDH"
+        elif "ML-KEM" in text_upper or "HYBRID" in text_upper:
+            return "HYBRID"
+    
+    # Some PGP tools include the key algorithm in armor headers
+    # e.g., "Charset: utf-8" or similar
+    # For now, return None to indicate we couldn't determine
+    return None
+
+
 def classify_algorithm_from_pgp(pgp_message) -> str:
     """
     Classify algorithm by inspecting PGP message packet headers.
@@ -79,9 +108,10 @@ def classify_algorithm_from_mime(message_obj) -> str:
 
     For MVP, this is a heuristic approach:
     - If Content-Type is multipart/encrypted → likely PGP
-    - If body contains -----BEGIN PGP MESSAGE----- → extract and parse
+    - If body contains -----BEGIN PGP MESSAGE----- → extract and try to guess algorithm
+    - Fallback to "ENCRYPTED" if we can't determine the specific algorithm
 
-    Returns: "RSA" | "ECDH" | "HYBRID" | "UNENCRYPTED" | "SIGNED_ONLY" | "UNKNOWN"
+    Returns: "RSA" | "ECDH" | "HYBRID" | "ENCRYPTED" | "UNENCRYPTED" | "SIGNED_ONLY" | "UNKNOWN"
     """
     if message_obj is None:
         return "UNENCRYPTED"
@@ -98,9 +128,12 @@ def classify_algorithm_from_mime(message_obj) -> str:
                     try:
                         payload = part.get_payload(decode=True)
                         if payload and b"-----BEGIN PGP MESSAGE-----" in payload:
-                            # We found an encrypted block, but can't parse without pgpy
-                            # Return a placeholder; full parsing happens in pgp_classifier.py
-                            return "ENCRYPTED_BLOCK_FOUND"
+                            # Try to guess algorithm from headers
+                            pgp_text = payload.decode('utf-8', errors='ignore')
+                            guessed = guess_algorithm_from_pgp_headers(pgp_text)
+                            if guessed:
+                                return guessed
+                            return "ENCRYPTED"
                     except Exception:
                         continue
 
@@ -111,13 +144,19 @@ def classify_algorithm_from_mime(message_obj) -> str:
                     try:
                         content = part.get_content()
                         if content and "-----BEGIN PGP MESSAGE-----" in content:
-                            return "ENCRYPTED_BLOCK_FOUND"
+                            guessed = guess_algorithm_from_pgp_headers(content)
+                            if guessed:
+                                return guessed
+                            return "ENCRYPTED"
                     except Exception:
                         continue
             else:
                 content = message_obj.get_content()
                 if content and "-----BEGIN PGP MESSAGE-----" in content:
-                    return "ENCRYPTED_BLOCK_FOUND"
+                    guessed = guess_algorithm_from_pgp_headers(content)
+                    if guessed:
+                        return guessed
+                    return "ENCRYPTED"
         except Exception:
             pass
 

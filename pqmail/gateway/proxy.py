@@ -104,7 +104,7 @@ class PQMailHandler(AsyncMessage):
             # ========== Step 6: Push event to React ==========
             try:
                 event = {
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now().isoformat(),
                     "message_id": parsed.headers.get("message_id", "unknown"),
                     "from": mail_from,
                     "to": rcpt_tos,
