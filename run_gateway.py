@@ -16,7 +16,11 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import asyncio
+from dotenv import load_dotenv
 from pqmail.gateway.proxy import run_gateway_sync
+
+# Load environment variables from .env
+load_dotenv(ROOT / ".env")
 
 if __name__ == "__main__":
     print("🚀 Starting PQMail SMTP Proxy Gateway...")

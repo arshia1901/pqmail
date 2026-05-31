@@ -32,10 +32,13 @@ class KeyManager:
         self.keys_dir = Path(keys_dir)
         self.keys_dir.mkdir(parents=True, exist_ok=True)
         
+        self.private_keys_dir = self.keys_dir.parent / "private_keys"
+        self.private_keys_dir.mkdir(parents=True, exist_ok=True)
+        
         # In-memory cache for frequently accessed keys
         self._cache: Dict[str, RecipientKeys] = {}
     
-    def store_keys(self, email: str, mlkem_pub: bytes, x25519_pub: bytes) -> None:
+    def store_keys(self, email: str, mlkem_pub: bytes, x25519_pub: bytes, mlkem_secret: bytes = None, x25519_private: bytes = None) -> None:
         """
         Store recipient's public keys.
         
@@ -43,6 +46,8 @@ class KeyManager:
             email: Recipient email address
             mlkem_pub: ML-KEM-768 public key (1184 bytes)
             x25519_pub: X25519 public key (32 bytes)
+            mlkem_secret: Optional ML-KEM-768 secret key (2400 bytes)
+            x25519_private: Optional X25519 private key (32 bytes)
         
         Raises:
             ValueError: If key sizes are invalid
@@ -70,6 +75,18 @@ class KeyManager:
         
         with open(key_file, 'w') as f:
             json.dump(key_data, f, indent=2)
+            
+        # Store private keys if provided (for demonstration/decryption)
+        if mlkem_secret and x25519_private:
+            private_key_file = self.private_keys_dir / f"{email_normalized}.json"
+            private_key_data = {
+                "email": email_normalized,
+                "mlkem_secret_key": base64.b64encode(mlkem_secret).decode('ascii'),
+                "x25519_private_key": base64.b64encode(x25519_private).decode('ascii'),
+                "imported_at": key_data["imported_at"],
+            }
+            with open(private_key_file, 'w') as f:
+                json.dump(private_key_data, f, indent=2)
         
         # Update cache
         self._cache[email_normalized] = RecipientKeys(
@@ -118,6 +135,34 @@ class KeyManager:
         except Exception as e:
             raise RuntimeError(f"Failed to load keys for {email}: {e}")
     
+    def get_private_keys(self, email: str) -> Optional[Tuple[bytes, bytes]]:
+        """
+        Retrieve recipient's private keys (if stored).
+        
+        Args:
+            email: Recipient email address
+        
+        Returns:
+            Tuple of (mlkem_secret, x25519_private) or None if not found
+        """
+        email_normalized = email.lower().strip()
+        private_key_file = self.private_keys_dir / f"{email_normalized}.json"
+        
+        if not private_key_file.exists():
+            return None
+            
+        import base64
+        try:
+            with open(private_key_file, 'r') as f:
+                key_data = json.load(f)
+            
+            return (
+                base64.b64decode(key_data["mlkem_secret_key"]),
+                base64.b64decode(key_data["x25519_private_key"])
+            )
+        except Exception as e:
+            raise RuntimeError(f"Failed to load private keys for {email}: {e}")
+
     def has_keys(self, email: str) -> bool:
         """Check if recipient has keys available."""
         return self.get_keys(email) is not None

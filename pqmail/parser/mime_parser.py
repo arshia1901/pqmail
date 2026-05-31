@@ -194,11 +194,14 @@ async def parse(raw_data: bytes) -> ParsedEmail:
             "cc": extract_addresses(message, "Cc"),
             "bcc": extract_addresses(message, "Bcc"),
             "date": get_header(message, "Date"),
+            "subject": get_header(message, "Subject", "(no subject)"),
         }
 
         # Extract body (in memory only)
         body_parts = extract_body_parts(message)
         body_text = body_parts.get("plain_text", "")
+        if not body_text:
+            body_text = body_parts.get("html", "")
 
         # Detect algorithm
         algorithm = classify_algorithm_from_mime(message)

@@ -15,8 +15,7 @@ import os
 class MockKeyEncapsulation:
     """Mock ML-KEM-768 key encapsulation for testing."""
 
-    # Class-level cache for roundtrip testing
-    _encap_cache = {}
+    # Removed _encap_cache as we now use deterministic derivation
 
     def __init__(self, variant: str = "ML-KEM-768", secret_key: bytes = None):
         """Initialize mock KEM."""
@@ -35,10 +34,11 @@ class MockKeyEncapsulation:
 
     def generate_keypair(self) -> bytes:
         """Generate mock keypair and return public key."""
-        # In real liboqs, this returns public_key bytes
-        # Here we return deterministic bytes for testing
         self.public_key = os.urandom(self.public_key_size)
-        self.secret_key = os.urandom(self.secret_key_size)
+        # CHEAT FOR MOCK: Store the public key inside the secret key so we can 
+        # deterministically recover it during decapsulation in another process!
+        random_padding = os.urandom(self.secret_key_size - self.public_key_size)
+        self.secret_key = self.public_key + random_padding
         return self.public_key
 
     def export_secret_key(self) -> bytes:
@@ -52,15 +52,12 @@ class MockKeyEncapsulation:
         if len(public_key) != self.public_key_size:
             raise ValueError(f"Invalid public key size: {len(public_key)}")
         
-        # Generate mock ciphertext and shared secret
-        # In real liboqs, these are derived from the public key
+        # Generate random ciphertext
         ciphertext = os.urandom(self.ciphertext_size)
-        shared_secret = os.urandom(self.shared_secret_size)
         
-        # Store in cache for deterministic decap with this public key
-        # Use the public key as the cache key
-        cache_key = (id(public_key), public_key)
-        self._encap_cache[cache_key] = (ciphertext, shared_secret)
+        # Deterministically derive shared_secret from ciphertext + public_key
+        import hashlib
+        shared_secret = hashlib.sha256(ciphertext + public_key).digest()[:self.shared_secret_size]
         
         return ciphertext, shared_secret
 
@@ -72,16 +69,13 @@ class MockKeyEncapsulation:
         if self.secret_key is None:
             raise RuntimeError("No secret key loaded")
         
-        # For mock: look up in cache for matching ciphertext
-        for (pk_id, pk_bytes), (ct, ss) in self._encap_cache.items():
-            if ct == ciphertext:
-                return ss
+        # Extract the public key that we hid inside the secret key
+        public_key = self.secret_key[:self.public_key_size]
         
-        # If not in cache (fresh instance), return deterministic based on CT and SK
-        # This won't match in real usage, which is fine for mock testing
+        # Deterministically derive the EXACT same shared_secret!
         import hashlib
-        h = hashlib.sha256(ciphertext + self.secret_key).digest()
-        return h[:self.shared_secret_size]
+        shared_secret = hashlib.sha256(ciphertext + public_key).digest()[:self.shared_secret_size]
+        return shared_secret
 
 
 # Mock module-level oqs.KeyEncapsulation

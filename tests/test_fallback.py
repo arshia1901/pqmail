@@ -76,7 +76,7 @@ def test_decide_rsa_upgrade():
         algorithm="RSA",
         is_encrypted=True,
     )
-    result = decide(parsed, ["alice@example.com"])
+    result = decide(parsed, ["alice@example.com"], has_recipient_keys=True)
 
     assert result["action"] == "UPGRADE"
     assert "upgrade_reason" in result
@@ -91,8 +91,8 @@ def test_decide_hybrid_forward(sample_parsed_hybrid):
 
 
 def test_decide_unencrypted_flag(sample_parsed_unencrypted):
-    """Unencrypted plaintext email → FLAG for review."""
-    result = decide(sample_parsed_unencrypted, ["alice@example.com"])
+    """Unencrypted plaintext email without keys → FLAG for review."""
+    result = decide(sample_parsed_unencrypted, ["alice@example.com"], has_recipient_keys=False)
 
     assert result["action"] == "FLAG"
     assert "plaintext" in result["flag"].lower()
@@ -115,7 +115,7 @@ def test_decide_ecdh_upgrade():
         algorithm="ECDH",
         is_encrypted=True,
     )
-    result = decide(parsed, ["alice@example.com"])
+    result = decide(parsed, ["alice@example.com"], has_recipient_keys=True)
 
     assert result["action"] == "UPGRADE"
 
@@ -129,7 +129,7 @@ def test_decide_signed_only_upgrade():
         algorithm="SIGNED_ONLY",
         is_encrypted=False,
     )
-    result = decide(parsed, ["alice@example.com"])
+    result = decide(parsed, ["alice@example.com"], has_recipient_keys=True)
 
     assert result["action"] == "UPGRADE"
 

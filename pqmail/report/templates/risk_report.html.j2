@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PQMail Security Risk Report</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+        
+        header {
+            border-bottom: 3px solid #2563eb;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        
+        h1 {
+            color: #1e40af;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .report-meta {
+            display: flex;
+            gap: 30px;
+            font-size: 0.9em;
+            color: #666;
+        }
+        
+        .meta-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .meta-label {
+            font-weight: bold;
+            color: #333;
+        }
+        
+        section {
+            margin-bottom: 40px;
+        }
+        
+        h2 {
+            color: #1e40af;
+            font-size: 1.8em;
+            border-left: 4px solid #2563eb;
+            padding-left: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .stat-card.critical {
+            background: linear-gradient(135deg, #f93b1d 0%, #ea1e63 100%);
+        }
+        
+        .stat-card.warning {
+            background: linear-gradient(135deg, #fa7921 0%, #ffa500 100%);
+        }
+        
+        .stat-card.success {
+            background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+        }
+        
+        .stat-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        
+        .breakdown {
+            background: #f9fafb;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .breakdown-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .breakdown-item:last-child {
+            border-bottom: none;
+        }
+        
+        .breakdown-label {
+            font-weight: 500;
+        }
+        
+        .breakdown-value {
+            background: white;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-weight: bold;
+            color: #2563eb;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        
+        th {
+            background: #2563eb;
+            color: white;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        .risk-critical {
+            background: #fecaca;
+            color: #991b1b;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .risk-high {
+            background: #fed7aa;
+            color: #92400e;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .risk-medium {
+            background: #fcd34d;
+            color: #713f12;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .risk-low {
+            background: #bbf7d0;
+            color: #065f46;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        
+        .algo-unencrypted {
+            background: #fee2e2;
+            color: #7f1d1d;
+        }
+        
+        .algo-rsa {
+            background: #fef3c7;
+            color: #78350f;
+        }
+        
+        .algo-ecdh {
+            background: #dbeafe;
+            color: #0c2d6b;
+        }
+        
+        .algo-hybrid {
+            background: #ddd6fe;
+            color: #3730a3;
+        }
+        
+        .algo-encrypted {
+            background: #cffafe;
+            color: #0e3e3e;
+        }
+        
+        .recommendations {
+            background: #eff6ff;
+            border-left: 4px solid #2563eb;
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+        }
+        
+        .recommendations h3 {
+            color: #1e40af;
+            margin-bottom: 10px;
+        }
+        
+        .recommendations ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .recommendations li {
+            padding: 8px 0;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .recommendations li:before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: #2563eb;
+            font-weight: bold;
+        }
+        
+        .footer {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+            text-align: center;
+            color: #666;
+            font-size: 0.85em;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+                padding: 0;
+            }
+            section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header>
+            <h1>🔐 PQMail Security Risk Report</h1>
+            <div class="report-meta">
+                <div class="meta-item">
+                    <span class="meta-label">Generated:</span>
+                    <span>{{ generated_at }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Mailbox:</span>
+                    <span>{{ mailbox_path }}</span>
+                </div>
+                <div class="meta-item">
+                    <span class="meta-label">Total Emails:</span>
+                    <span>{{ total_emails }}</span>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Executive Summary -->
+        <section>
+            <h2>📊 Executive Summary</h2>
+            <div class="stats-grid">
+                <div class="stat-card critical">
+                    <div class="stat-value">{{ critical_count }}</div>
+                    <div class="stat-label">Critical Risk</div>
+                </div>
+                <div class="stat-card warning">
+                    <div class="stat-value">{{ by_algorithm.get('UNENCRYPTED', 0) }}</div>
+                    <div class="stat-label">Unencrypted</div>
+                </div>
+                <div class="stat-card success">
+                    <div class="stat-value">{{ hybrid_count }}</div>
+                    <div class="stat-label">Quantum-Safe</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ "%.1f"|format(avg_years_of_safety) }}</div>
+                    <div class="stat-label">Avg Years of Safety</div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- Algorithm Distribution -->
+        <section>
+            <h2>🔑 Encryption Algorithm Distribution</h2>
+            <div class="breakdown">
+                {% for algo, count in by_algorithm.items() %}
+                <div class="breakdown-item">
+                    <span class="breakdown-label">
+                        <span class="algo-{{ algo|lower }}">{{ algo }}</span>
+                    </span>
+                    <span class="breakdown-value">{{ count }} emails</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        
+        <!-- Risk Categories -->
+        <section>
+            <h2>⚠️ Risk Categories (HNDL Model)</h2>
+            <div class="breakdown">
+                {% for category, count in by_risk_category.items() %}
+                <div class="breakdown-item">
+                    <span class="breakdown-label">
+                        <span class="risk-{{ category|lower }}">{{ category }}</span>
+                    </span>
+                    <span class="breakdown-value">{{ count }} emails</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        
+        <!-- Sensitivity Distribution -->
+        <section>
+            <h2>🏷️ Content Sensitivity</h2>
+            <div class="breakdown">
+                {% for sensitivity, count in by_sensitivity.items() %}
+                <div class="breakdown-item">
+                    <span class="breakdown-label">{{ sensitivity }}</span>
+                    <span class="breakdown-value">{{ count }} emails</span>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+        
+        <!-- Critical Emails Table -->
+        {% if critical_emails %}
+        <section>
+            <h2>🔴 Critical Risk Emails (Top 20)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Algorithm</th>
+                        <th>Risk</th>
+                        <th>Sensitivity</th>
+                        <th>Years of Safety</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for email in critical_emails %}
+                    <tr>
+                        <td>{{ email.from }}</td>
+                        <td>{{ email.to }}</td>
+                        <td><span class="algo-{{ email.algorithm|lower }}">{{ email.algorithm }}</span></td>
+                        <td><span class="risk-{{ email.risk_category|lower }}">{{ email.risk_category }}</span></td>
+                        <td>{{ email.sensitivity }}</td>
+                        <td><strong>{{ email.years_of_safety }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+        
+        <!-- Unencrypted Emails Table -->
+        {% if unencrypted_emails %}
+        <section>
+            <h2>🚨 Unencrypted Emails (Top 20)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Algorithm</th>
+                        <th>Risk</th>
+                        <th>Sensitivity</th>
+                        <th>Years of Safety</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for email in unencrypted_emails %}
+                    <tr>
+                        <td>{{ email.from }}</td>
+                        <td>{{ email.to }}</td>
+                        <td><span class="algo-{{ email.algorithm|lower }}">{{ email.algorithm }}</span></td>
+                        <td><span class="risk-{{ email.risk_category|lower }}">{{ email.risk_category }}</span></td>
+                        <td>{{ email.sensitivity }}</td>
+                        <td><strong>{{ email.years_of_safety }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+        
+        <!-- Hybrid Encrypted Emails Table -->
+        {% if hybrid_emails %}
+        <section>
+            <h2>✅ Quantum-Safe (Hybrid) Emails (Top 20)</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>From</th>
+                        <th>To</th>
+                        <th>Algorithm</th>
+                        <th>Risk</th>
+                        <th>Sensitivity</th>
+                        <th>Years of Safety</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for email in hybrid_emails %}
+                    <tr>
+                        <td>{{ email.from }}</td>
+                        <td>{{ email.to }}</td>
+                        <td><span class="algo-{{ email.algorithm|lower }}">{{ email.algorithm }}</span></td>
+                        <td><span class="risk-{{ email.risk_category|lower }}">{{ email.risk_category }}</span></td>
+                        <td>{{ email.sensitivity }}</td>
+                        <td><strong>{{ email.years_of_safety }}</strong></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        {% endif %}
+        
+        <!-- Recommendations -->
+        <section>
+            <div class="recommendations">
+                <h3>📋 Recommendations</h3>
+                <ul>
+                    <li><strong>Quantum Threat Timeline:</strong> {{ quantum_timeline_years }} years (configurable)</li>
+                    <li><strong>Unencrypted emails:</strong> Upgrade {{ by_algorithm.get('UNENCRYPTED', 0) }} emails to hybrid ML-KEM-768 + X25519</li>
+                    <li><strong>RSA-only encryption:</strong> Consider upgrading to hybrid (5-year RSA vs 50-year hybrid defense horizon)</li>
+                    <li><strong>Defense Horizons:</strong>
+                        <ul>
+                            <li>UNENCRYPTED: 0 years</li>
+                            <li>RSA: 5 years</li>
+                            <li>ECDH: 7 years</li>
+                            <li>HYBRID (ML-KEM + X25519): 50+ years</li>
+                        </ul>
+                    </li>
+                    <li><strong>Action Items:</strong>
+                        <ul>
+                            <li>Deploy PQMail gateway on mail server</li>
+                            <li>Auto-upgrade critical/high sensitivity emails</li>
+                            <li>Store recipient ML-KEM public keys</li>
+                            <li>Monitor encryption compliance</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </section>
+        
+        <!-- Footer -->
+        <div class="footer">
+            <p>This report was generated by <strong>PQMail</strong> — Post-Quantum Email Security Gateway</p>
+            <p>For more information: <a href="https://github.com/pqmail">github.com/pqmail</a></p>
+            <p>Quantum-safe encryption implementation using ML-KEM-768 (NIST PQC finalist) + X25519 ECDH</p>
+        </div>
+    </div>
+</body>
+</html>

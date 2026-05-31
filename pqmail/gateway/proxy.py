@@ -16,7 +16,12 @@ Security rules:
 import asyncio
 import os
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
+
+# Load environment variables from .env
+from dotenv import load_dotenv
+load_dotenv()
 
 import aiohttp
 from aiosmtpd.controller import Controller
@@ -28,6 +33,7 @@ from pqmail.classifier.rule_classifier import classify
 from pqmail.fallback.decision import decide
 from pqmail.crypto.hybrid_kem import re_encrypt_message
 from pqmail.gateway.forwarder import forward
+from pqmail.keys.key_manager import KeyManager
 
 
 class PQMailHandler(AsyncMessage):
@@ -70,6 +76,8 @@ class PQMailHandler(AsyncMessage):
         mail_from = envelope.mail_from
         rcpt_tos = envelope.rcpt_tos
 
+        print(f"[PQMail] Received email from {mail_from} to {rcpt_tos}")
+
         try:
             # ========== Step 1: Parse MIME + detect algorithm ==========
             parsed = await parse(raw_bytes)
@@ -84,11 +92,19 @@ class PQMailHandler(AsyncMessage):
             quantum_timeline = int(os.getenv("QUANTUM_TIMELINE_YEARS", 10))
             risk_score = score(parsed.algorithm, sensitivity, quantum_timeline)
 
-            # ========== Step 4: Decide action ==========
-            decision = decide(parsed, rcpt_tos)
+            # ========== Step 4: Check recipient key availability ==========
+            key_manager = KeyManager()
+            has_recipient_keys = False
+            for rcpt in rcpt_tos:
+                if key_manager.has_keys(rcpt):
+                    has_recipient_keys = True
+                    break
+
+            # ========== Step 5: Decide action ==========
+            decision = decide(parsed, rcpt_tos, has_recipient_keys)
             action = decision.get("action", "FORWARD")
 
-            # ========== Step 5: Optional re-encryption ==========
+            # ========== Step 6: Optional re-encryption ==========
             final_bytes = raw_bytes
             if action == "UPGRADE":
                 try:
@@ -101,8 +117,9 @@ class PQMailHandler(AsyncMessage):
             else:
                 risk_score["upgraded"] = False
 
-            # ========== Step 6: Push event to React ==========
+            # ========== Step 7: Push event to React ==========
             try:
+                import base64
                 event = {
                     "timestamp": datetime.now().isoformat(),
                     "message_id": parsed.headers.get("message_id", "unknown"),
@@ -113,20 +130,29 @@ class PQMailHandler(AsyncMessage):
                     "risk": risk_score,
                     "action": action,
                     "flag": decision.get("flag", ""),
+                    "raw_bytes_b64": base64.b64encode(raw_bytes).decode('ascii'),  # For manual re-encryption
                 }
                 # Push event to backend via HTTP (separate process)
                 async with aiohttp.ClientSession() as session:
-                    async with session.post(
-                        "http://localhost:8000/push_event",
-                        json=event,
-                        timeout=aiohttp.ClientTimeout(total=2)
-                    ) as resp:
-                        if resp.status != 200:
-                            print(f"[PQMail] Event push failed: HTTP {resp.status}")
+                    try:
+                        async with session.post(
+                            "http://localhost:8000/push_event",
+                            json=event,
+                            timeout=aiohttp.ClientTimeout(total=2)
+                        ) as resp:
+                            if resp.status == 200:
+                                print(f"[PQMail] Event pushed to backend")
+                            else:
+                                print(f"[PQMail] Event push failed: HTTP {resp.status}")
+                    except asyncio.TimeoutError:
+                        print(f"[PQMail] Event push timeout")
+                    except Exception as e:
+                        print(f"[PQMail] Event push exception: {e}")
             except Exception as e:
-                print(f"[PQMail] Event push failed: {type(e).__name__}")
+                import traceback
+                print(f"[PQMail] Event creation failed: {type(e).__name__}: {e}")
 
-            # ========== Step 7: Forward to Gmail ==========
+            # ========== Step 8: Forward to Gmail ==========
             forward_status = "skipped"
             if os.getenv("UPSTREAM_USER") and os.getenv("UPSTREAM_PASSWORD"):
                 try:

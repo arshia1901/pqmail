@@ -55,35 +55,107 @@ const AlgorithmBadge: React.FC<{ algo: string }> = ({ algo }) => {
 };
 
 const LiveEmailFeed: React.FC<{ emails: Email[] }> = ({ emails }) => {
+  const [upgrading, setUpgrading] = useState<string | null>(null);
+  const [upgradeStatus, setUpgradeStatus] = useState<Record<string, string>>({});
+
+  const handleUpgrade = async (email: Email) => {
+    setUpgrading(email.message_id);
+    try {
+      const response = await fetch('http://localhost:8000/upgrade', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id: email.message_id,
+          recipient_email: email.to[0] || email.from,
+        }),
+      });
+      
+      const result = await response.json();
+      setUpgradeStatus(prev => ({
+        ...prev,
+        [email.message_id]: result.status,
+      }));
+      
+      // Clear status after 5 seconds
+      setTimeout(() => {
+        setUpgradeStatus(prev => {
+          const newStatus = { ...prev };
+          delete newStatus[email.message_id];
+          return newStatus;
+        });
+      }, 5000);
+    } catch (error) {
+      console.error('Upgrade failed:', error);
+      setUpgradeStatus(prev => ({
+        ...prev,
+        [email.message_id]: 'error',
+      }));
+    } finally {
+      setUpgrading(null);
+    }
+  };
+
+  const canUpgrade = (algo: string) => {
+    return ['UNENCRYPTED', 'RSA', 'ECDH', 'SIGNED_ONLY'].includes(algo);
+  };
+
   return (
     <div className="space-y-3 max-h-96 overflow-y-auto">
       {emails.length === 0 ? (
         <p className="text-gray-500 text-center py-8">Waiting for emails...</p>
       ) : (
-        emails.slice(0, 20).map((email, idx) => (
-          <div key={idx} className="border rounded-lg p-4 bg-white hover:bg-gray-50 transition">
-            <div className="flex items-start justify-between mb-2">
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900 truncate">{email.from}</p>
-                <p className="text-xs text-gray-500">{new Date(email.timestamp).toLocaleTimeString()}</p>
+        emails.slice(0, 20).map((email, idx) => {
+          const status = upgradeStatus[email.message_id];
+          return (
+            <div key={idx} className="border rounded-lg p-4 bg-white hover:bg-gray-50 transition">
+              <div className="flex items-start justify-between mb-2">
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900 truncate">{email.from}</p>
+                  <p className="text-xs text-gray-500">{new Date(email.timestamp).toLocaleTimeString()}</p>
+                </div>
+                <RiskBadge risk={email.risk.risk_category} />
               </div>
-              <RiskBadge risk={email.risk.risk_category} />
+              <div className="flex gap-2 mb-2">
+                <AlgorithmBadge algo={email.algorithm} />
+                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                  email.sensitivity === 'CRITICAL' ? 'bg-red-100 text-red-900' :
+                  email.sensitivity === 'HIGH' ? 'bg-orange-100 text-orange-900' :
+                  'bg-green-100 text-green-900'
+                }`}>
+                  {email.sensitivity}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 mb-3">
+                ⏱️ {email.risk.years_of_safety_remaining} years of safety
+              </p>
+              
+              {/* Upgrade Button */}
+              {canUpgrade(email.algorithm) && (
+                <button
+                  onClick={() => handleUpgrade(email)}
+                  disabled={upgrading === email.message_id}
+                  className={`w-full py-2 rounded text-xs font-medium transition ${
+                    status === 'upgraded'
+                      ? 'bg-green-100 text-green-900 cursor-default'
+                      : status === 'no_keys'
+                      ? 'bg-yellow-100 text-yellow-900 cursor-default'
+                      : status === 'not_found'
+                      ? 'bg-gray-100 text-gray-900 cursor-default'
+                      : upgrading === email.message_id
+                      ? 'bg-blue-100 text-blue-900 cursor-wait'
+                      : 'bg-purple-100 text-purple-900 hover:bg-purple-200 cursor-pointer'
+                  }`}
+                >
+                  {status === 'upgraded' ? '✓ Re-encrypted & Re-sent to Gmail' :
+                   status === 'no_keys' ? '⚠️ No ML-KEM keys available' :
+                   status === 'not_found' ? '❌ Email data not available' :
+                   upgrading === email.message_id ? '🔄 Re-encrypting...' :
+                   '🔐 Upgrade to ML-KEM-768'}
+                </button>
+              )}
             </div>
-            <div className="flex gap-2 mb-2">
-              <AlgorithmBadge algo={email.algorithm} />
-              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                email.sensitivity === 'CRITICAL' ? 'bg-red-100 text-red-900' :
-                email.sensitivity === 'HIGH' ? 'bg-orange-100 text-orange-900' :
-                'bg-green-100 text-green-900'
-              }`}>
-                {email.sensitivity}
-              </span>
-            </div>
-            <p className="text-xs text-gray-600">
-              ⏱️ {email.risk.years_of_safety_remaining} years of safety
-            </p>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
@@ -132,8 +204,26 @@ const AuditUploader: React.FC<{ onUpload: (file: File) => void }> = ({ onUpload 
   );
 };
 
+const calculateHNDL = (algo: string, sens: string, T: number) => {
+  const D_map: Record<string, number> = { 'RSA': 5, 'ECDH': 7, 'HYBRID': 50, 'UNENCRYPTED': 0 };
+  const M_map: Record<string, number> = { 'LOW': 2, 'MEDIUM': 0, 'HIGH': -3, 'CRITICAL': -6 };
+  
+  const D = D_map[algo] ?? 0;
+  const M = M_map[sens] ?? 0; // Baseline is MEDIUM
+  
+  const years = Math.max(0, D - T + M);
+  
+  let category = 'LOW';
+  if (years === 0) category = 'CRITICAL';
+  else if (years <= 3) category = 'HIGH';
+  else if (years <= 7) category = 'MEDIUM';
+  
+  return { years_of_safety_remaining: years, risk_category: category };
+};
+
 export default function Dashboard() {
   const [emails, setEmails] = useState<Email[]>([]);
+  const [quantumTimeline, setQuantumTimeline] = useState<number>(10);
   const [stats, setStats] = useState<Stats | null>(null);
   const [connected, setConnected] = useState(false);
   const [backendUrl, setBackendUrl] = useState('http://localhost:8000');
@@ -205,6 +295,12 @@ export default function Dashboard() {
     }
   }, [backendUrl]);
 
+  // Recalculate HNDL scores dynamically on the frontend based on the selected quantum timeline
+  const computedEmails = emails.map(e => ({
+    ...e,
+    risk: calculateHNDL(e.algorithm, e.sensitivity, quantumTimeline)
+  }));
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
       {/* Header */}
@@ -231,26 +327,26 @@ export default function Dashboard() {
         <div className="grid grid-cols-4 gap-4 mb-8">
           <StatCard
             title="Emails Processed"
-            value={emails.length}
+            value={computedEmails.length}
             icon={<Mail size={24} />}
           />
           <StatCard
             title="Critical Risk"
-            value={emails.filter((e) => e.risk.risk_category === 'CRITICAL').length}
+            value={computedEmails.filter((e) => e.risk.risk_category === 'CRITICAL').length}
             icon={<AlertCircle size={24} />}
           />
           <StatCard
             title="Hybrid Encrypted"
-            value={emails.filter((e) => e.algorithm === 'HYBRID').length}
+            value={computedEmails.filter((e) => e.algorithm === 'HYBRID').length}
             icon={<CheckCircle size={24} />}
           />
           <StatCard
             title="Avg Safety"
             value={
-              emails.length > 0
+              computedEmails.length > 0
                 ? (
-                    emails.reduce((sum, e) => sum + e.risk.years_of_safety_remaining, 0) /
-                    emails.length
+                    computedEmails.reduce((sum, e) => sum + e.risk.years_of_safety_remaining, 0) /
+                    computedEmails.length
                   ).toFixed(1)
                 : '—'
             }
@@ -264,12 +360,54 @@ export default function Dashboard() {
           <div className="col-span-2">
             <div className="bg-white rounded-lg border shadow-sm p-6">
               <h2 className="text-xl font-bold text-gray-900 mb-4">📨 Live Email Feed</h2>
-              <LiveEmailFeed emails={emails} />
+              <LiveEmailFeed emails={computedEmails} />
             </div>
           </div>
 
           {/* Sidebar */}
           <div className="space-y-6">
+            {/* Interactive HNDL Score Model */}
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg border border-indigo-100 shadow-sm p-6">
+              <h2 className="text-lg font-bold text-indigo-900 mb-2">🧮 HNDL Score Model</h2>
+              <p className="text-sm text-indigo-700 mb-4 font-mono bg-white/60 p-2 rounded">
+                years = max(0, D - T + M)
+              </p>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-indigo-900 mb-2">
+                  Quantum Timeline (T)
+                </label>
+                <div className="flex bg-white rounded-lg p-1 border shadow-inner">
+                  {[
+                    { label: '5y', val: 5, desc: 'Optimistic' },
+                    { label: '10y', val: 10, desc: 'Moderate' },
+                    { label: '15y', val: 15, desc: 'Conservative' }
+                  ].map(scenario => (
+                    <button
+                      key={scenario.val}
+                      onClick={() => setQuantumTimeline(scenario.val)}
+                      className={`flex-1 py-1.5 px-2 text-sm font-medium rounded-md transition ${
+                        quantumTimeline === scenario.val
+                          ? 'bg-indigo-600 text-white shadow'
+                          : 'text-gray-600 hover:bg-indigo-50'
+                      }`}
+                      title={scenario.desc}
+                    >
+                      {scenario.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="text-xs text-indigo-800 space-y-1">
+                <p><strong>D:</strong> Algorithm Horizon (RSA=5, ML-KEM=50)</p>
+                <p><strong>M:</strong> Sensitivity (LOW=+2, CRITICAL=-6)</p>
+                <p className="mt-2 text-indigo-600 italic">
+                  Change the timeline to watch the risk distribution dynamically recalculate!
+                </p>
+              </div>
+            </div>
+
             {/* Audit Upload */}
             <div className="bg-white rounded-lg border shadow-sm p-6">
               <h2 className="text-lg font-bold text-gray-900 mb-4">📤 Audit Mailbox</h2>
@@ -298,12 +436,12 @@ export default function Dashboard() {
             )}
 
             {/* Algorithm Distribution */}
-            {emails.length > 0 && (
+            {computedEmails.length > 0 && (
               <div className="bg-white rounded-lg border shadow-sm p-6">
                 <h3 className="font-bold text-gray-900 mb-3">🔐 Algorithm Mix</h3>
                 <div className="space-y-2 text-sm">
                   {Object.entries(
-                    emails.reduce(
+                    computedEmails.reduce(
                       (acc, e) => {
                         acc[e.algorithm] = (acc[e.algorithm] || 0) + 1;
                         return acc;
@@ -314,7 +452,7 @@ export default function Dashboard() {
                     <div key={algo} className="flex justify-between">
                       <span className="text-gray-600">{algo}:</span>
                       <span className="font-semibold">
-                        {count} ({((count / emails.length) * 100).toFixed(0)}%)
+                        {count} ({((count / computedEmails.length) * 100).toFixed(0)}%)
                       </span>
                     </div>
                   ))}
@@ -323,12 +461,12 @@ export default function Dashboard() {
             )}
 
             {/* Risk Distribution */}
-            {emails.length > 0 && (
+            {computedEmails.length > 0 && (
               <div className="bg-white rounded-lg border shadow-sm p-6">
                 <h3 className="font-bold text-gray-900 mb-3">⚠️ Risk Distribution</h3>
                 <div className="space-y-2 text-sm">
                   {Object.entries(
-                    emails.reduce(
+                    computedEmails.reduce(
                       (acc, e) => {
                         acc[e.risk.risk_category] = (acc[e.risk.risk_category] || 0) + 1;
                         return acc;
@@ -345,14 +483,13 @@ export default function Dashboard() {
                         <span className="text-gray-600">{risk}:</span>
                         <div className="flex items-center gap-2">
                           <div
-                            className={`h-2 rounded-full`}
-                            style={{ width: `${(count / emails.length) * 100}px` }}
                             className={`h-2 rounded-full ${
                               risk === 'CRITICAL' ? 'bg-red-500' :
                               risk === 'HIGH' ? 'bg-orange-500' :
                               risk === 'MEDIUM' ? 'bg-yellow-500' :
                               'bg-green-500'
                             }`}
+                            style={{ width: `${(count / computedEmails.length) * 100}px` }}
                           ></div>
                           <span className="font-semibold w-8 text-right">{count}</span>
                         </div>
