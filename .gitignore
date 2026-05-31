@@ -17,8 +17,10 @@ env/
 # Logs
 *.log
 
-# Generated reports
+# Generated reports (but not frontend files)
 *.html
+!frontend/**/*.html
+!frontend/index.html
 
 # Test/cache files
 .pytest_cache/
